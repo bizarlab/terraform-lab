@@ -1,7 +1,7 @@
 resource "oci_core_instance" "oracle_linux_instance" {
 
     availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-    compartment_id = "ocid1.compartment.oc1..aaaaaaaak6njnzzjlgjpucbt57ojn7zmpilhxznl2ufekg4mx56xfvnhpypa"
+    compartment_id = "Introducir el OCID del compartment donde lo vamos a instalar"
     shape = "VM.Standard.E4.Flex"
     shape_config {
     ocpus = 4
@@ -16,7 +16,7 @@ resource "oci_core_instance" "oracle_linux_instance" {
     display_name = "sdlapx01"
     create_vnic_details {
         assign_public_ip = false
-        subnet_id = "ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaa2cxb5r5ebdktaeyxvrovwu5abx2jhuymxi5v5yicq4odjruprbzq"
+        subnet_id = "OCID de la subnet"
     }
     extended_metadata = {
         ssh_authorized_keys = file("/home/oracle/.ssh/id_rsa_terraform.pub")
@@ -26,7 +26,7 @@ resource "oci_core_instance" "oracle_linux_instance" {
 resource "oci_core_volume" "CreateVolume"{
 
         availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-        compartment_id = "ocid1.compartment.oc1..aaaaaaaak6njnzzjlgjpucbt57ojn7zmpilhxznl2ufekg4mx56xfvnhpypa"
+        compartment_id = "Introducir el OCID del compartment donde lo vamos a instalar"
         display_name = "oradata-sdlapx01"
         size_in_gbs = 64
 }
@@ -40,7 +40,7 @@ resource "oci_core_volume_attachment" "CreateVolumeAttachment"{
 resource "oci_core_volume" "CreateVolume2"{
 
         availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-        compartment_id = "ocid1.compartment.oc1..aaaaaaaak6njnzzjlgjpucbt57ojn7zmpilhxznl2ufekg4mx56xfvnhpypa"
+        compartment_id = "Introducir el OCID del compartment donde lo vamos a instalar"
         display_name = "backup-sdlapx01"
         size_in_gbs = 128
 }
@@ -70,7 +70,7 @@ resource "null_resource" "remote-exec" {
         "sudo iscsiadm -m node -o update -T ${oci_core_volume_attachment.CreateVolumeAttachment2.iqn}  -n node.startup -v automatic",
         "sudo iscsiadm -m node -T ${oci_core_volume_attachment.CreateVolumeAttachment2.iqn} -p ${oci_core_volume_attachment.CreateVolumeAttachment2.ipv4}:${oci_core_volume_attachment.CreateVolumeAttachment2.port} -l",
         #"sudo dnf update -y",
-        "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAQEAybXiVJDnjLWnTfxbqT/n2FMp/+VF0lfQx2wfx96wzSUdZyrdpZbUcxPYLUFSWzH0q8bqlRq81a1n/7TPMVDQW+eT5zv7qzc+FdXPeCNeRZC03mzrML6anMDCsH4kVU18Q7YZr3k+j4/XRizvhagqDfq6B3gJsXJL6OMKRU1F4Pbnx4cS2V/f3pjvViLtlV1s19DQvdKn8D6toMqhTWfy5IXKBaV1xfGrN2PiOX0L2NGjimvjoZGTN/fbVwmbHvmpMeF5cunZUXIB8N/rMqVtUgVhtbGSGus2R83f15dXLjhVmrfthIKDUYF5gHZirhqT7syyMDBox6FHjVDrO150FQ== prd_private_ctisoft' >> /home/opc/.ssh/authorized_keys",
+        "echo 'Introducir public key' >> /home/opc/.ssh/authorized_keys",
 
     ]
   }
