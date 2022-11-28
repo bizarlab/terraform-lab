@@ -1,0 +1,214 @@
+#!/bin/bash
+
+current_compartment_ocid=$(awk -F "\"" ' /compartment_ocid/ {print $4}' variables.tf)
+current_prefix=$(awk -F "\"" ' /prefix/ {print $4}' variables.tf)
+current_hostname=$(awk -F "\"" ' /hostname/ {print $4}' variables.tf)
+current_cpeip=$(awk -F "\"" ' /cpeip/ {print $4}' variables.tf)
+current_lannetcidr=$(awk -F "\"" ' /lannetcidr/ {print $4}' variables.tf)
+current_lannet2cidr=$(awk -F "\"" ' /lannet2cidr/ {print $4}' variables.tf)
+current_vcncidr=$(awk -F "\"" ' /vcncidr/ {print $4}' variables.tf)
+current_bvsize_oracle=$(awk -F "\"" ' /bvsize_oracle/ {print $4}' variables.tf)
+current_bvsize_fra_bck_exp=$(awk -F "\"" ' /bvsize_fra_bck_exp/ {print $4}' variables.tf)
+current_mw_shape=$(awk -F "\"" ' /mw_shape/ {print $4}' variables.tf)
+current_dba_shape=$(awk -F "\"" ' /dba_shape/ {print $4}' variables.tf)
+current_dbb_shape=$(awk -F "\"" ' /dbb_shape/ {print $4}' variables.tf)
+current_vcn_id_pod=$(awk -F "\"" ' /vcn_id_pod/ {print $4}' variables.tf)
+current_lpg_mgmt_name=$(awk -F "\"" ' /lpg_mgmt_name/ {print $4}' variables.tf)
+
+
+current_sbdbcidr=$(awk -F "\"" ' /sbdbcidr/ {print $4}' variables.tf)
+current_sbmwcidr=$(awk -F "\"" ' /sbmwcidr/ {print $4}' variables.tf)
+current_sbfecidr=$(awk -F "\"" ' /sbfecidr/ {print $4}' variables.tf)
+
+echo -e "\nDatos actuales de la instalación\n"
+echo -e "Compartimento:\n\t${current_compartment_ocid}\n"
+echo -e "Nombre de la empresa:\n\t${current_prefix}\n"
+echo -e "IP publica estatica de la empresa:\n\t${current_cpeip}\n"
+echo -e "LAN network cidr de la empresa:\n\t${current_lannetcidr}\n"
+echo -e "VCN cidr:\n\t${current_vcncidr}\n"
+
+read -p "¿Cambiar los datos de la instalación? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+        echo
+        echo "Compartimentos spyro en Oracle Cloud"
+        echo
+        echo "spyro tenancy:  ocid1.tenancy.oc1..aaaaaaaaxnuzwf6oep6aqoz5ya5k4cawvm4wrm6agq6qz4lutcwrrho4kctq"
+        oci iam compartment list --all |  awk -F "\"" ' /ocid1.compartment/ { ID=$4; next } /name/ {print $4":  "ID}'
+        echo
+        read -p "Elegir el OCID del compartimento: " new_compartment_ocid
+        sed -i "s/compartment_ocid\" {default = \"${current_compartment_ocid}/compartment_ocid\" \{default = \"${new_compartment_ocid}/g" variables.tf
+
+        echo
+        read -p "Introducir nombre de la empresa (Modificable): " new_prefix
+        sed -i "s/prefix\" {default = \"${current_prefix}/prefix\" \{default = \"${new_prefix}/g" variables.tf
+        new_hostname=$(echo "$new_prefix" | awk '{print tolower($0)}')
+        sed -i "s/hostname\" {default = \"${current_hostname}/hostname\" \{default = \"${new_hostname}/g" variables.tf
+
+        echo
+        read -p "IP publica estatica de ${new_prefix} (Modificable): " new_cpeip
+        sed -i "s/cpeip\" {default = \"${current_cpeip}/cpeip\" \{default = \"${new_cpeip}/g" variables.tf
+
+        echo
+        read -p "LAN network cidr de ${new_prefix} (Modificable): " new_lannetcidr
+        sed -i "s:lannetcidr\" {default = \"${current_lannetcidr}:lannetcidr\" \{default = \"${new_lannetcidr}:g" variables.tf
+
+# Select POD
+
+        echo "Seleccionar POD de MGMT"
+        oci network vcn list --compartment-id ocid1.compartment.oc1..aaaaaaaalwqwv2z4clxsjpj4mvgsxle63ilwei4epiqxoqce4srv3oqxm44a | awk -F "\"" '/"id"/ { print $0 } /name/ {print $4}'
+        read -p "Seleccionar OCID del POD ${vcn_id_pod} (Modificable): " vcn_id_pod
+        sed -i "s:vcn_id_pod\" {default = \"${current_vcn_id_pod}:vcn_id_pod\" {default = \"${vcn_id_pod}:g" variables.tf
+
+# VCN addressing selection
+        echo
+        read -p "Elegir VCN cidr para ${new_prefix} (172.20.X.0/24): " -i 172.20. -e new_vcncidr
+        sed -i "s:vcncidr\" {default = \"${current_vcncidr}:vcncidr\" \{default = \"${new_vcncidr}:g" variables.tf
+
+        vcnsbcidr=$(echo ${new_vcncidr} | awk -F "." '{print $3}')
+
+        sed -i "s:sbmwcidr\" {default = \"${current_sbmwcidr}:sbmwcidr\" \{default = \"172.20.${vcnsbcidr}.0/25:g" variables.tf
+        sed -i "s:sbdbcidr\" {default = \"${current_sbdbcidr}:sbdbcidr\" \{default = \"172.20.${vcnsbcidr}.128/26:g" variables.tf
+        sed -i "s:sbfecidr\" {default = \"${current_sbfecidr}:sbfecidr\" \{default = \"172.20.${vcnsbcidr}.192/26:g" variables.tf
+        sed -i "s:lpg_mgmt_name\" {default = \"${current_lpg_mgmt_name}:lpg_mgmt_name\" {default = \"LPG${vcnsbcidr}:g" variables.tf
+
+
+        # Crear IPs de Instancias y guardarlas como variables en iplist.tf
+        awk -F "." -v var="$vcnsbcidr" -v OFS='.' '{$3 = var ;print}' iplist.tf >> iplist.temp
+        mv iplist.temp iplist.tf
+
+
+# Availability Domain selection
+
+        echo
+        read -p $'Elegir en que ADs instalar (Modificable)? (a/b/c/d/e/f/g)\na)AD1\nb)AD2\nc)AD3\nd)AD1 y AD2\ne)AD1 y AD3\nf)AD2 y AD3\n' -n 1 -r
+        echo
+
+        # 2nd AD comment flaf deletion
+
+        if [[ $REPLY =~ ^[Aa]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^#*//g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-1/g" variables.tf
+                echo
+                echo "El deploy se instalara en AD1"
+                sed -i "s/num_ad=[12]/num_ad=1/g" variables.tf
+        fi
+        if [[ $REPLY =~ ^[Bb]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^#*//g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-2/g" variables.tf
+                echo
+                echo "El deploy se instalara en AD2"
+                sed -i "s/num_ad=[12]/num_ad=1/g" variables.tf
+        fi
+        if [[ $REPLY =~ ^[Cc]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^#*//g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-3/g" variables.tf
+                echo
+                echo "El deploy se instalara en AD3"
+                sed -i "s/num_ad=[12]/num_ad=1/g" variables.tf
+        fi
+        if [[ $REPLY =~ ^[Dd]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^/#/g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-1/g" variables.tf
+                sed -i "s/install_ad_b\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_b\" \{default = \"cfjx:EU-FRANKFURT-1-AD-2/g" variables.tf
+                echo
+                echo "El deploy se instalara en AD1 y AD2"
+                sed -i "s/num_ad=[12]/num_ad=2/g" variables.tf
+        fi
+        if [[ $REPLY =~ ^[Ee]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^/#/g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-1/g" variables.tf
+                sed -i "s/install_ad_b\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_b\" \{default = \"cfjx:EU-FRANKFURT-1-AD-3/g" variables.tf
+                echo
+                echo "El deploy se instalara en AD1 y AD3"
+                sed -i "s/num_ad=[12]/num_ad=2/g" variables.tf
+        fi
+        if [[ $REPLY =~ ^[Ff]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^/#/g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-2/g" variables.tf
+                sed -i "s/install_ad_b\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_b\" \{default = \"cfjx:EU-FRANKFURT-1-AD-3/g" variables.tf
+                echo
+                echo "El deploy se instalara en AD2 y AD3"
+                sed -i "s/num_ad=[12]/num_ad=2/g" variables.tf
+        fi
+        if [[ ! $REPLY =~ ^[AaBbCcDdEeFf]$ ]]
+        then
+                sed -i '/ACTIVAR_2AD/s/^#*//g' *.tf
+                sed -i "s/install_ad_a\" {default = \"cfjx:EU-FRANKFURT-1-AD-[123]/install_ad_a\" \{default = \"cfjx:EU-FRANKFURT-1-AD-1/g" variables.tf
+                echo
+                echo "AD no seleccionado instalación por defecto AD1"
+                sed -i "s/num_ad=[12]/num_ad=1/g" variables.tf
+        fi
+
+        num_ad=$(awk -F "=" '/num_ad/ {print $2}' variables.tf)
+
+
+# Spyro DB Instance customization
+
+        echo
+        echo "Tamaño block volume de ORACLE: $current_bvsize_oracle"
+        echo "Tamaño block volume de FRA BCK EXP: $current_bvsize_fra_bck_exp"
+        echo
+        read -p "¿Cambiar el tamaño de las block volume? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]
+        then
+                echo
+                read -p "Tamaño de block volume de ORACLE: " -i $current_bvsize_oracle -e new_bvsize_oracle
+                sed -i "s:bvsize_oracle\" {default = \"${current_bvsize_oracle}:bvsize_oracle\" \{default = \"${new_bvsize_oracle}:g" variables.tf
+                echo
+                read -p "Tamaño de block volume de FRA BCK EXP: " -i $current_bvsize_fra_bck_exp -e new_bvsize_fra_bck_exp
+                sed -i "s:bvsize_fra_bck_exp\" {default = \"${current_bvsize_fra_bck_exp}:bvsize_fra_bck_exp\" \{default = \"${new_bvsize_fra_bck_exp}:g" variables.tf
+        fi
+
+        echo
+        echo "Tamaño VM middleware: $current_mw_shape"
+        echo "Tamaño VM database AD-A: $current_dba_shape"
+        if [ $num_ad = 2 ]; then
+                echo "Tamaño VM database AD-B: $current_dbb_shape"
+        fi
+        echo
+        read -p "¿Cambiar el tamaño de las VM a crear? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]
+        then
+                echo
+                read -p "Tamaño de VM middleware: " -i $current_mw_shape -e new_mw_shape
+                sed -i "s:mw_shape\" {default = \"${current_mw_shape}:mw_shape\" \{default = \"${new_mw_shape}:g" variables.tf
+                echo
+                read -p "Tamaño de VM database AD-A: " -i $current_dba_shape -e new_dba_shape
+                sed -i "s:dba_shape\" {default = \"${current_dba_shape}:dba_shape\" \{default = \"${new_dba_shape}:g" variables.tf
+                if [ $num_ad = 2 ]; then
+                        read -p "Tamaño de VM database AD-B: " -i $current_dbb_shape -e new_dbb_shape
+                        sed -i "s:dbb_shape\" {default = \"${current_dbb_shape}:dbb_shape\" \{default = \"${new_dbb_shape}:g" variables.tf
+                fi
+                echo
+        fi
+
+        if [ ! -e ./ssh_keys/ssh_priv_key.pem ]
+        then
+                mkdir ssh_keys
+                openssl genrsa -out ./ssh_keys/ssh_priv_key.pem 2048
+                chmod 600 ./ssh_keys/ssh_priv_key.pem
+                ssh-keygen -y -f ./ssh_keys/ssh_priv_key.pem > ./ssh_keys/ssh_pub_key.pub
+                echo "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAQEAslIC4mi+p1poe9zB6xWCAdS6j+BoerEHROrDqAzarPI/53XDtWOv351BzKYyP6dUXYAaTfG9GLib3LLVwYIoXEEc7lCB2l+032U66XFNlrlcc1e4RszR7W+ni4bz3m1CLRhQXMWTiKeTCZOzWs+lSZx7BUE0F+fwlPMaO5tMcVKQjLn33hlAbi7wY+b+C66Ms+2u2ZqAvfdsEjrV6pKq+hCQDmnRu0u39SAilyG1fJ2WDPEjzamkQL0EtuG1WAcvr8Ie00vFj5VG6znCWmV6aAkgZBUgPWcwukxYvlZzCjYFF9kdlRr4+AD5SDngoJaooDsZDD7nAi/5zghIwlHiqQ== CTI-KEY" >> ./ssh_keys/ssh_pub_key.pub
+                chmod 600 ./ssh_keys/ssh_pub_key.pub
+                puttygen ./ssh_keys/ssh_priv_key.pem -o ./ssh_keys/"$new_hostname"-private.ppk -O private
+        fi
+
+        echo
+        echo "Datos actualizados, para cargar la nueva configuración ejecutar: terraform init"
+        echo
+
+        echo "terraform init"
+        echo "terraform plan y revisar los errores. Añadir a mano extras"
+        echo "terraform  apply"
+
+fi
